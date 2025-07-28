@@ -4,6 +4,17 @@ import axios from 'axios';
 import emailjs from 'emailjs-com';
 import { ToastContainer, toast } from 'react-toastify';
 import 'react-toastify/dist/ReactToastify.css';
+import * as XLSX from 'xlsx';
+import {
+  ResponsiveContainer,
+  BarChart,
+  Bar,
+  XAxis,
+  YAxis,
+  Tooltip,
+  Legend,
+  CartesianGrid
+} from 'recharts';
 
 function Dashboard() {
   const navigate = useNavigate();
@@ -16,8 +27,12 @@ function Dashboard() {
   const [showDetailsModal, setShowDetailsModal] = useState(false);
   const [loading, setLoading] = useState(false);
   const [loadingAdmins, setLoadingAdmins] = useState(false);
+  const [filterStatus, setFilterStatus] = useState('Todos');
 
-  
+
+  const acceptedCount = responses.filter(r => r.status === 'Aceptado').length;
+  const deniedCount   = responses.filter(r => r.status === 'Denegado').length;
+
   useEffect(() => {
     const token = localStorage.getItem('authToken');
     if (!token) {
@@ -122,6 +137,58 @@ function Dashboard() {
     }
   };
 
+   const filteredResponses = responses.filter(r =>
+    filterStatus === 'Todos' ? true : r.status === filterStatus
+  );
+
+
+    const exportToExcel = () => {
+    // Prepara un array de objetos planos
+    const data = filteredResponses.map(r => ({
+      FechaPermiso: `${new Date(r.startDate).toLocaleDateString('es-ES')} - ${new Date(r.endDate).toLocaleDateString('es-ES')}`,
+      Cedula: r.studentId,
+      Nombre: r.fullName,
+      Estado: r.status,
+      Semestre: r.semester,
+      Razon: r.reason,
+      Evidencia: r.evidence || '—',
+    }));
+
+    // Crea un workbook y añade la hoja
+    const ws = XLSX.utils.json_to_sheet(data);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, 'Respuestas');
+
+    // Genera y descarga el archivo
+    XLSX.writeFile(wb, `respuestas_${filterStatus.toLowerCase() || 'todas'}.xlsx`);
+  };
+  
+   const statsByUser = responses.reduce((acc, r) => {
+    const key = r.fullName;
+    if (!acc[key]) acc[key] = { name: key, Aceptado: 0, Denegado: 0 };
+    acc[key][r.status]++;
+    return acc;
+  }, {});
+  const top5Users = Object.values(statsByUser)
+    .map(u => ({ ...u, total: u.Aceptado + u.Denegado }))
+    .sort((a, b) => b.total - a.total)
+    .slice(0, 5);
+
+  // Solo estas tres razones
+  const razonesFijas = ['Calamidad domestica', 'Caso fortuito', 'Situaciones Medicas'];
+  const acceptedByReason = responses
+    .filter(r => r.status === 'Aceptado')
+    .reduce((acc, r) => {
+      if (razonesFijas.includes(r.reason)) {
+        acc[r.reason] = (acc[r.reason] || 0) + 1;
+      }
+      return acc;
+    }, {});
+  const reasonsData = razonesFijas.map(reason => ({
+    reason,
+    count: acceptedByReason[reason] || 0
+  }));
+
   // Cerrar modal manualmente
   const closeActionModal = () => {
     const modalElement = document.getElementById('actionModal');
@@ -215,6 +282,20 @@ function Dashboard() {
             Administradores
           </button>
         </li>
+       <li className="nav-item" role="presentation">
+          <button
+            className="nav-link"
+            id="stats-tab"
+            data-bs-toggle="tab"
+            data-bs-target="#stats"
+            type="button"
+            role="tab"
+            aria-controls="stats"
+            aria-selected="false"
+          >
+            Estadísticas
+          </button>
+        </li>
       </ul>
       <div className="tab-content" id="dashboardTabsContent">
         {/* Permisos Pendientes */}
@@ -280,38 +361,61 @@ function Dashboard() {
 
         {/* Respuestas */}
         <div className="tab-pane fade" id="responses" role="tabpanel">
-          <div className="table-responsive mt-3">
-            <table className="table table-bordered">
-              <thead>
-                <tr>
-                  <th>#</th>
-                  <th>Fecha Permiso</th>
-                  <th>Cedula</th>
-                  <th>Nombre</th>
-                  <th>Estado</th>
-                  <th>Semestre</th>
-                  <th>Razón</th>
-                </tr>
-              </thead>
-              <tbody>
-                {responses.map((response, index) => (
-                  <tr key={response._id}>
-                    <td>{index + 1}</td>
-                    <td>
-                        {new Date(response.startDate).toLocaleDateString("es-ES")}- 
-                        {new Date(response.endDate).toLocaleDateString("es-ES")}
-                      </td>
-                    <td>{response.studentId}</td>
-                    <td>{response.fullName}</td>
-                    <td>{response.status}</td>
-                    <td>{response.semester}</td>
-                    <td>{response.reason}</td>  
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+        <div className="d-flex justify-content-between align-items-center mt-3">
+          <div className="d-flex align-items-center">
+            <label className="me-2">Filtrar estado:</label>
+            <select
+              className="form-select form-select-sm"
+              style={{ width: 'auto' }}
+              value={filterStatus}
+              onChange={e => setFilterStatus(e.target.value)}
+            >
+              <option value="Todos">Todos</option>
+              <option value="Aceptado">Aceptado</option>
+              <option value="Denegado">Denegado</option>
+            </select>
           </div>
+          <button
+            className="btn btn-outline-success btn-sm"
+            onClick={exportToExcel}
+          >
+            Descargar Excel
+          </button>
         </div>
+
+        <div className="table-responsive mt-2">
+          <table className="table table-bordered">
+            <thead>
+              <tr>
+                <th>#</th><th>Fecha Permiso</th><th>Cédula</th><th>Nombre</th>
+                <th>Estado</th><th>Semestre</th><th>Razón</th><th>Evidencia</th>
+              </tr>
+            </thead>
+            <tbody>
+              {filteredResponses.map((r, i) => (
+                <tr key={r._id}>
+                  <td>{i + 1}</td>
+                  <td>
+                    {new Date(r.startDate).toLocaleDateString('es-ES')} -{' '}
+                    {new Date(r.endDate).toLocaleDateString('es-ES')}
+                  </td>
+                  <td>{r.studentId}</td>
+                  <td>{r.fullName}</td>
+                  <td>{r.status}</td>
+                  <td>{r.semester}</td>
+                  <td>{r.reason}</td>
+                  <td>
+                    {r.evidence
+                      ? <a href={r.evidence} target="_blank" rel="noreferrer">Ver</a>
+                      : '—'}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
 
         {/* Administradores */}
         <div className="tab-pane fade" id="admins" role="tabpanel">
@@ -353,8 +457,157 @@ function Dashboard() {
             </div>
           )}
         </div>
-      </div>
+       
+      {/* 4) Estadísticas */}
+       <div
+            className="tab-pane fade"
+            id="stats"
+            role="tabpanel"
+            aria-labelledby="stats-tab"
+          >
+            <br />
+            <div className="row g-4">
 
+              {/* Card 1: Top5Solicitantes */}
+              <div className="col-lg-6 col-md-12">
+                <div className="card border-primary shadow-sm h-100">
+                  <div className="card-header bg-primary text-white">
+                    <h6 className="mb-0">📊 Top 5 Solicitantes</h6>
+                  </div>
+                  <div className="card-body">
+                    <ResponsiveContainer width="100%" height={280}>
+                      <BarChart
+                        data={top5Users}
+                        margin={{ top: 10, right: 20, left: 0, bottom: 5 }}
+                      >
+                        <CartesianGrid strokeDasharray="3 3" />
+                        <XAxis
+                          dataKey="name"
+                          tick={{ fontSize: 12, fill: '#333' }}
+                          interval={0}
+                          angle={-15}
+                          textAnchor="end"
+                        />
+                        <YAxis />
+                        <Tooltip
+                          contentStyle={{ borderRadius: '8px' }}
+                          itemStyle={{ fontSize: '14px' }}
+                        />
+                        <Legend verticalAlign="top" iconType="circle" />
+                        <Bar
+                          dataKey="Aceptado"
+                          barSize={18}
+                          fill="#4caf50"
+                          radius={[4, 4, 0, 0]}
+                        />
+                        <Bar
+                          dataKey="Denegado"
+                          barSize={18}
+                          fill="#f44336"
+                          radius={[4, 4, 0, 0]}
+                        />
+                      </BarChart>
+                    </ResponsiveContainer>
+                  </div>
+                </div>
+              </div>
+
+              {/* Card 2: Permisos Aceptados por Razón */}
+              <div className="col-lg-6 col-md-12">
+                <div className="card border-info shadow-sm h-100">
+                  <div className="card-header bg-primary text-white">
+                    <h6 className="mb-0">📑 Aceptados por Razón</h6>
+                  </div>
+                  <div className="card-body">
+                    <ResponsiveContainer width="100%" height={280}>
+                      <BarChart
+                        data={reasonsData}
+                        margin={{ top: 10, right: 20, left: 0, bottom: 5 }}
+                      >
+                        <CartesianGrid strokeDasharray="3 3" />
+                        <XAxis
+                          dataKey="reason"
+                          tick={{ fontSize: 12, fill: '#333' }}
+                        />
+                        <YAxis />
+                        <Tooltip
+                          contentStyle={{ borderRadius: '8px' }}
+                          itemStyle={{ fontSize: '14px' }}
+                        />
+                        <Bar
+                          dataKey="count"
+                          barSize={18}
+                          fill="#2196f3"
+                          radius={[4, 4, 0, 0]}
+                        />
+                      </BarChart>
+                    </ResponsiveContainer>
+                  </div>
+                </div>
+              </div>
+
+            </div>
+
+            {/* Card 3: Resumen Total */}
+            <div className="row g-4 mt-3">
+              <div className="col-12">
+                <div className="card border-success shadow-sm">
+                  <div className="card-header bg-success text-white">
+                    <h6 className="mb-0">📈 Resumen Total de Permisos</h6>
+                  </div>
+                  <div className="card-body">
+                    <div className="d-flex justify-content-center gap-5 mb-4">
+                      <div className="text-center">
+                        <span className="fs-3 fw-bold text-success">
+                          {acceptedCount}
+                        </span>
+                        <div className="small text-muted">Aceptados</div>
+                      </div>
+                      <div className="text-center">
+                        <span className="fs-3 fw-bold text-danger">
+                          {deniedCount}
+                        </span>
+                        <div className="small text-muted">Denegados</div>
+                      </div>
+                    </div>
+                    <ResponsiveContainer width="100%" height={120}>
+                      <BarChart
+                        layout="vertical"
+                        data={[
+                          { name: 'Aceptados', count: acceptedCount },
+                          { name: 'Denegados', count: deniedCount }
+                        ]}
+                        margin={{ top: 5, right: 20, left: 60, bottom: 5 }}
+                      >
+                        <CartesianGrid strokeDasharray="3 3" />
+                        <XAxis type="number" />
+                        <YAxis
+                          type="category"
+                          dataKey="name"
+                          width={100}
+                          tick={{ fontSize: 14, fill: '#333' }}
+                        />
+                        <Tooltip
+                          contentStyle={{ borderRadius: '8px' }}
+                          itemStyle={{ fontSize: '14px' }}
+                        />
+                        <Bar
+                          dataKey="count"
+                          barSize={20}
+                          fill="#00acc1"
+                          radius={[4, 4, 0, 0]}
+                        />
+                      </BarChart>
+                    </ResponsiveContainer>
+                  </div>
+                </div>
+              </div>
+            </div>
+           </div> {/* cierra stats tab-pane */}
+
+        </div> {/* cierra tab-content */}
+
+          
       {/* Modal de acción */}
    <div className="modal fade" id="actionModal" tabIndex="-1" aria-hidden="true">
   <div className="modal-dialog">
