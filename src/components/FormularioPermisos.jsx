@@ -106,8 +106,8 @@ const diasValidos = obtenerDiasHabilesValidos();
       return;
     }
 
-    if (file.type === 'application/pdf' && file.size > 50 * 1024 * 1024) {
-      toast.error('❌ El archivo PDF supera los 50 MB. Utiliza el comprimir pdf.');
+    if (file.type === 'application/pdf' && file.size > 2 * 1024 * 1024) {
+      toast.error('❌ El archivo PDF supera los 2 MB. Utiliza el comprimir pdf.');
       return;
     }
 
@@ -382,3 +382,4 @@ const diasValidos = obtenerDiasHabilesValidos();
 }
 
 export default FormularioPermisos;
+
